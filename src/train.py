@@ -1,3 +1,4 @@
+# ! --- build in ---
 import os
 import sys
 import math
@@ -9,8 +10,10 @@ import numpy as np
 import mxnet as mx
 from mxnet import ndarray as nd
 import argparse
+# ! ---pakage ----
+import config
 import mxnet.optimizer as optimizer
-from config import config, default, generate_config
+# from config import config, default, generate_config
 from metric import *
 from dataloader import FaceImageIter
 from utils import flops_counter
@@ -105,8 +108,9 @@ def train_net(args):
     print('prefix', prefix)
     if not os.path.exists(prefix_dir):
         os.makedirs(prefix_dir)
+    #
     args.ctx_num = len(ctx)
-    args.batch_size = args.per_batch_size*args.ctx_num
+    args.batch_size = args.per_batch_size*config.ctx_num
     args.rescale_threshold = 0
     args.image_channel = config.image_shape[2]
     config.batch_size = args.batch_size
@@ -127,17 +131,11 @@ def train_net(args):
     mean = None
 
     begin_epoch = 0
-    if len(args.pretrained)==0:
-        arg_params = None
-        aux_params = None
-        sym = get_symbol(args)
-        if config.net_name=='spherenet':
-            data_shape_dict = {'data' : (args.per_batch_size,)+data_shape}
-            spherenet.init_weights(sym, data_shape_dict, args.num_layers)
-    else:
-        print('loading', args.pretrained, args.pretrained_epoch)
-        _, arg_params, aux_params = mx.model.load_checkpoint(args.pretrained, args.pretrained_epoch)
-        sym = get_symbol(args)
+    if config.use_pretrain:
+        print('loading', config.pretrained, config.pretrained_epoch)
+        _, arg_params, aux_params = mx.model.load_checkpoint(config.pretrained, config.pretrained_epoch)
+    # get symbol 
+    sym = get_symbol(args)
 
     if config.count_flops:
         all_layers = sym.get_internals()
@@ -210,61 +208,61 @@ def train_net(args):
         global_step[0]+=1
         mbatch = global_step[0]
         for step in lr_steps:
-        if mbatch==step:
-          opt.lr *= 0.1
-          print('lr change to', opt.lr)
-          break
+            if mbatch==step:
+                opt.lr *= 0.1
+                print('lr change to', opt.lr)
+                break
         _cb(param)
         if mbatch%1000==0:
-        print('lr-batch-epoch:',opt.lr,param.nbatch,param.epoch)
+            print('lr-batch-epoch:',opt.lr,param.nbatch,param.epoch)
 
         if mbatch>=0 and mbatch%args.verbose==0:
-        acc_list = ver_test(mbatch)
-        save_step[0]+=1
-        msave = save_step[0]
-        do_save = False
-        is_highest = False
-        if len(acc_list)>0:
-            #lfw_score = acc_list[0]
-            #if lfw_score>highest_acc[0]:
-            #  highest_acc[0] = lfw_score
-            #  if lfw_score>=0.998:
-            #    do_save = True
-            score = sum(acc_list)
-            if acc_list[-1]>=highest_acc[-1]:
-                if acc_list[-1]>highest_acc[-1]:
-                    is_highest = True
-                else:
-                    if score>=highest_acc[0]:
-                        is_highest = True
-                        highest_acc[0] = score
-                highest_acc[-1] = acc_list[-1]
-                #if lfw_score>=0.99:
-                #  do_save = True
-        if is_highest:
-            do_save = True
-        if args.ckpt==0:
+            acc_list = ver_test(mbatch)
+            save_step[0]+=1
+            msave = save_step[0]
             do_save = False
-        elif args.ckpt==2:
-            do_save = True
-        elif args.ckpt==3:
-            msave = 1
-        if do_save:
-            print('saving', msave)
-            arg, aux = model.get_params()
-            if config.ckpt_embedding:
-                all_layers = model.symbol.get_internals()
-                _sym = all_layers['fc1_output']
-                _arg = {}
-                for k in arg:
-                    if not k.startswith('fc7'):
-                        _arg[k] = arg[k]
-                mx.model.save_checkpoint(prefix, msave, _sym, _arg, aux)
-            else:
-                mx.model.save_checkpoint(prefix, msave, model.symbol, arg, aux)
-        print('[%d]Accuracy-Highest: %1.5f'%(mbatch, highest_acc[-1]))
+            is_highest = False
+            if len(acc_list)>0:
+                #lfw_score = acc_list[0]
+                #if lfw_score>highest_acc[0]:
+                #  highest_acc[0] = lfw_score
+                #  if lfw_score>=0.998:
+                #    do_save = True
+                score = sum(acc_list)
+                if acc_list[-1]>=highest_acc[-1]:
+                    if acc_list[-1]>highest_acc[-1]:
+                        is_highest = True
+                    else:
+                        if score>=highest_acc[0]:
+                            is_highest = True
+                            highest_acc[0] = score
+                    highest_acc[-1] = acc_list[-1]
+                    #if lfw_score>=0.99:
+                    #  do_save = True
+            if is_highest:
+                do_save = True
+            if args.ckpt==0:
+                do_save = False
+            elif args.ckpt==2:
+                do_save = True
+            elif args.ckpt==3:
+                msave = 1
+            if do_save:
+                print('saving', msave)
+                arg, aux = model.get_params()
+                if config.ckpt_embedding:
+                    all_layers = model.symbol.get_internals()
+                    _sym = all_layers['fc1_output']
+                    _arg = {}
+                    for k in arg:
+                        if not k.startswith('fc7'):
+                            _arg[k] = arg[k]
+                    mx.model.save_checkpoint(prefix, msave, _sym, _arg, aux)
+                else:
+                    mx.model.save_checkpoint(prefix, msave, model.symbol, arg, aux)
+            print('[%d]Accuracy-Highest: %1.5f'%(mbatch, highest_acc[-1]))
         if config.max_steps>0 and mbatch>config.max_steps:
-        sys.exit(0)
+            sys.exit(0)
     epoch_cb = None
     train_dataiter = mx.io.PrefetchingIter(train_dataiter)
     model.fit(train_dataiter,
