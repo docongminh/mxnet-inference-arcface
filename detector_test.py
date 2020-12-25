@@ -19,7 +19,6 @@ from mtcnn_detector import MtcnnDetector
 import face_image
 import face_preprocess
 
-
 def do_flip(data):
   for idx in range(data.shape[0]):
     data[idx,:,:] = np.fliplr(data[idx,:,:])
@@ -38,6 +37,31 @@ def get_model(ctx, image_size, model_str, layer, prefix, epoch):
   model.set_params(arg_params, aux_params)
   return model
 
+def imshow(image, boxs):
+
+
+    # Start coordinate, here (5, 5)
+    # represents the top left corner of rectangle
+    print("boxs: ", boxs)
+    start_point = (int(boxs[0]), int(boxs[1]))
+
+    # Ending coordinate, here (220, 220)
+    # represents the bottom right corner of rectangle
+    end_point = (int(boxs[2]), int(boxs[3]))
+
+    # Blue color in BGR
+    color = (255, 0, 0)
+
+    # Line thickness of 2 px
+    thickness = 2
+
+    # Using cv2.rectangle() method
+    # Draw a rectangle with blue line borders of thickness of 2 px
+    img = cv2.rectangle(image, start_point, end_point, color, thickness)
+
+    # Displaying the image
+    return img
+
 class FaceModel:
   def __init__(self, args):
     self.args = args
@@ -45,11 +69,6 @@ class FaceModel:
       ctx = mx.cpu()
     else:
       ctx = mx.gpu(args.gpu)
-    self.model = None
-    self.prefix = args.prefix
-    self.epoch = args.epoch
-    self.image_size = args.image_size
-    self.model = get_model(ctx, self.image_size, self.args.model, 'fc1', self.prefix, self.epoch)
     self.threshold = args.threshold
     self.det_minsize = 50
     self.det_threshold = [0.6,0.7,0.8]
@@ -78,18 +97,30 @@ class FaceModel:
       return None
     bbox = bbox[0,0:4]
     points = points[0,:].reshape((2,5)).T
+    print("--------------box--------------------")
     print(bbox)
+    result = imshow(face_img, bbox)
+    cv2.imwrite("test.jpg", result)
+    print("---------------points---------------")
     print(points)
     nimg = face_preprocess.preprocess(face_img, bbox, points, image_size='112,112')
     nimg = cv2.cvtColor(nimg, cv2.COLOR_BGR2RGB)
     aligned = np.transpose(nimg, (2,0,1))
     return aligned
 
-  def get_feature(self, aligned):
-    input_blob = np.expand_dims(aligned, axis=0)
-    data = mx.nd.array(input_blob)
-    db = mx.io.DataBatch(data=(data,))
-    self.model.forward(db, is_train=False)
-    embedding = self.model.get_outputs()[0].asnumpy()
-    embedding = sklearn.preprocessing.normalize(embedding).flatten()
-    return embedding
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='face model test')
+    # general
+    parser.add_argument('--model', default='', help='path to load model.')
+    parser.add_argument('--gpu', default=0, type=int, help='gpu id')
+    parser.add_argument('--det', default=0, type=int, help='mtcnn option, 1 means using R+O, 0 means detect from begining')
+    parser.add_argument('--flip', default=0, type=int, help='whether do lr flip aug')
+    parser.add_argument('--threshold', default=1.24, type=float, help='ver dist threshold')
+    parser.add_argument('--prefix', default='models/arc_models/arc_resnet50/model-r50/model', type=str, help='prefix to model')
+    parser.add_argument('--epoch', default=0, type=int, help='epoch index')
+    parser.add_argument('--image_size', default=112, type=int, help='image size')
+    parser.add_argument('--use_cpu', default=True, type=bool, help='cpu mxnet')
+    args = parser.parse_args()
+    model = FaceModel(args)
+    img = cv2.imread('/home/cristiand/Documents/face_detection/mxnet-inference-arcface/test/test_1.jpg')
+    img = model.get_input(img)
